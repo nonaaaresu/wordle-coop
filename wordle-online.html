@@ -58,16 +58,24 @@ h1{font-size:22px;margin:8px 0}
 .toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:var(--hl);color:#111;padding:8px 16px;border-radius:8px;font-weight:700;display:none;z-index:5}
 .over{position:fixed;inset:0;background:#000c;display:flex;align-items:center;justify-content:center;padding:16px;z-index:4}
 .over .panel{max-width:520px;text-align:center}
+#chat{position:fixed;right:12px;bottom:12px;z-index:6;display:none;flex-direction:column;align-items:flex-end;gap:8px}
+#chatBtn{background:var(--hl);color:#111;border:0;border-radius:20px;padding:10px 18px;font-weight:700}
+#chatBtn b{background:#e5624d;color:#fff;border-radius:10px;padding:1px 7px;margin-left:6px;font-size:12px}
+#chatBox{width:300px;max-width:calc(100vw - 24px);height:320px;background:var(--panel);border:1px solid var(--line);border-radius:10px;display:none;flex-direction:column;overflow:hidden}
+#msgs{flex:1;overflow-y:auto;padding:10px;font-size:14px;display:flex;flex-direction:column;gap:6px;word-break:break-word}
+#msg{border-radius:0;border:0;border-top:1px solid var(--line);width:100%}
 </style>
 </head>
 <body>
 <div class="wrap" id="app"></div>
 <div class="toast" id="toast"></div>
+<div id="chat"><div id="chatBox"><div id="msgs"></div><input id="msg" maxlength="200" placeholder="Escribí y apretá Enter"></div>
+<button id="chatBtn" onclick="toggleChat()">Chat<b id="unread" hidden></b></button></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ======== CONFIGURAR (Supabase > Project Settings > API) ======== */
-const SUPABASE_URL='https://wvfemkvvztaibfrbciov.supabase.co';
-const SUPABASE_KEY='sb_publishable_FyU3CUIMqtA4uD5beQlA2A_Rk9wqsrn';
+const SUPABASE_URL='TU-URL';
+const SUPABASE_KEY='TU-ANON-KEY';
 /* =============================================================== */
 
 const COLORS=['#e5624d','#4da6e5','#e5c14d','#8fd14d','#c07de5','#e58fb5','#4de5c1','#e59a4d'];
@@ -83,7 +91,8 @@ async function rpc(fn,args){const r=await sb.rpc(fn,args);if(r.error){toast(r.er
 /* ---------- conexion ---------- */
 async function boot(){
   if(SUPABASE_URL.startsWith('TU-')){$('#app').innerHTML='<div class="panel">Falta configurar SUPABASE_URL y SUPABASE_KEY al principio del script.</div>';return}
-  sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  let url=SUPABASE_URL.trim();try{url=new URL(url).origin}catch(e){}
+  sb=supabase.createClient(url,SUPABASE_KEY.trim());
   let {data:{session}}=await sb.auth.getSession();
   if(!session){const r=await sb.auth.signInAnonymously();
     if(r.error){$('#app').innerHTML='<div class="panel">Error de login anónimo: '+r.error.message+'<br>Activalo en Authentication › Sign In / Providers › Anonymous.</div>';return}
@@ -94,15 +103,15 @@ async function boot(){
 }
 async function load(){
   const q=t=>sb.from(t).select().eq(t=='rooms'?'code':'room',S.code);
-  const [r,p,g]=await Promise.all([q('rooms').maybeSingle(),q('players').order('color'),q('guesses').order('id')]);
+  const [r,p,g,m]=await Promise.all([q('rooms').maybeSingle(),q('players').order('color'),q('guesses').order('id'),sb.from('messages').select().eq('room',S.code).order('id').limit(200)]);
   if(!r.data)return false;
-  S.room=r.data;S.players=p.data||[];S.guesses=g.data||[];
+  S.room=r.data;S.players=p.data||[];S.guesses=g.data||[];S.msgs=m.data||[];
   if(['won','lost'].includes(S.room.status)&&!S.ans){const a=await sb.rpc('get_answers',{p_code:S.code});S.ans=a.data}
   return true;
 }
 let rt;const reload=()=>{clearTimeout(rt);rt=setTimeout(async()=>{await load();render()},60)};
 async function enter(code){
-  S.code=code;S.ans=null;S.cur=0;S.draft={};
+  S.code=code;S.ans=null;S.cur=0;S.draft={};S.seen=0;S.chatOpen=false;
   if(!await load()){localStorage.removeItem('room');S.code=null;return}
   localStorage.setItem('room',code);
   const f={schema:'public',filter:'room=eq.'+code};
@@ -110,6 +119,7 @@ async function enter(code){
     .on('postgres_changes',{event:'*',schema:'public',table:'rooms',filter:'code=eq.'+code},reload)
     .on('postgres_changes',{event:'*',...f,table:'players'},reload)
     .on('postgres_changes',{event:'INSERT',...f,table:'guesses'},reload)
+    .on('postgres_changes',{event:'INSERT',...f,table:'messages'},reload)
     .on('presence',{event:'sync'},()=>{S.pres=S.ch.presenceState();render()})
     .subscribe(s=>{if(s=='SUBSCRIBED')track()});
 }
@@ -158,6 +168,7 @@ document.addEventListener('keydown',e=>{
 function render(){
   const a=$('#app');if(!sb)return;
   a.innerHTML=!S.room?home():S.room.status=='lobby'?lobby():game();
+  renderChat();
 }
 function home(){return `<h1>Wordle en equipo</h1><div class="panel">
   <p><b>Tu nombre</b></p><input id="nm" maxlength="20" value="${localStorage.getItem('nm')||''}" placeholder="Nombre">
@@ -216,6 +227,21 @@ function game(){
       <div class="board">${rows}</div><div class="kb">${kb}</div></div>
       <div class="thumbs">${th}</div></div>${over}`;
 }
+/* ---------- chat ---------- */
+function renderChat(){
+  const c=$('#chat');c.style.display=S.room?'flex':'none';if(!S.room)return;
+  const ms=S.msgs||[];
+  $('#msgs').innerHTML=ms.map(m=>{const p=S.players.find(x=>x.uid==m.uid);
+    return `<div><b style="color:${COLORS[p?p.color:0]}">${p?esc(p.name):'?'}</b> ${esc(m.body)}</div>`}).join('')||'<span class="mut">Todavía no hay mensajes.</span>';
+  if(S.chatOpen){S.seen=ms.length;const e=$('#msgs');e.scrollTop=e.scrollHeight}
+  const u=ms.length-(S.seen||0),b=$('#unread');b.hidden=u<=0;b.textContent=u;
+  $('#chatBox').style.display=S.chatOpen?'flex':'none';
+}
+function toggleChat(){S.chatOpen=!S.chatOpen;renderChat();if(S.chatOpen)$('#msg').focus()}
+$('#msg').addEventListener('keydown',async e=>{
+  if(e.key!='Enter')return;const i=e.target,v=i.value.trim();if(!v)return;i.value='';
+  if(!await rpc('send_message',{p_code:S.code,p_body:v}))i.value=v;
+});
 boot();
 </script>
 </body>
