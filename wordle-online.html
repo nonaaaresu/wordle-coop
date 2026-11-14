@@ -37,7 +37,7 @@ h1{font-size:22px;margin:8px 0}
 .cell{width:54px;height:54px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700}
 .cell.g{background:var(--g);border-color:var(--g)}.cell.y{background:var(--y);border-color:var(--y)}
 .cell.x{background:var(--x);border-color:var(--x);color:var(--mut)}.cell.t{border-color:#6a6e78}
-.who{width:10px;height:10px;border-radius:50%;background:var(--c)}
+.who{width:18px;height:18px;border-radius:50%;background:var(--c);color:#111;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
 .shake{animation:sh .3s}@keyframes sh{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
 .nav{display:flex;align-items:center;gap:14px}
 .nav .btn{border-radius:50%;width:40px;height:40px;padding:0;background:var(--hl);color:#111}
@@ -58,6 +58,19 @@ h1{font-size:22px;margin:8px 0}
 .toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:var(--hl);color:#111;padding:8px 16px;border-radius:8px;font-weight:700;display:none;z-index:5}
 .over{position:fixed;inset:0;background:#000c;display:flex;align-items:center;justify-content:center;padding:16px;z-index:4}
 .over .panel{max-width:520px;text-align:center}
+.slot i.r{color:#e5624d;border-color:#e5624d}
+.stats{max-height:94vh;overflow:auto;width:100%;max-width:560px}
+.sum{display:flex;justify-content:center;gap:28px;margin:12px 0}
+.sum div{display:flex;flex-direction:column}.sum b{font-size:26px}.sum span{font-size:12px;color:var(--mut)}
+.awards{display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:left}
+@media(max-width:480px){.awards{grid-template-columns:1fr}}
+.aw{display:flex;gap:10px;align-items:center;background:var(--bg);border-radius:8px;padding:10px}
+.aw i{font-style:normal;font-size:26px}
+.aw div{display:flex;flex-direction:column;min-width:0}.aw small{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.aw span{font-size:12px;color:var(--mut)}
+.st{width:100%;border-collapse:collapse;margin-top:14px;font-size:14px}
+.st th{color:var(--mut);font-weight:400;font-size:12px;padding:4px}.st td{padding:6px 4px;border-top:1px solid var(--line)}
+.st td:first-child{text-align:left}.st td+td,.st th+th{text-align:center}
 #chat{position:fixed;right:12px;bottom:12px;z-index:6;display:none;flex-direction:column;align-items:flex-end;gap:8px}
 #chatBtn{background:var(--hl);color:#111;border:0;border-radius:20px;padding:10px 18px;font-weight:700}
 #chatBtn b{background:#e5624d;color:#fff;border-radius:10px;padding:1px 7px;margin-left:6px;font-size:12px}
@@ -108,7 +121,7 @@ async function load(){
 }
 let rt;const reload=()=>{clearTimeout(rt);rt=setTimeout(async()=>{await load();render()},60)};
 async function enter(code){
-  S.code=code;S.ans=null;S.cur=0;S.draft={};S.seen=0;S.chatOpen=false;
+  S.code=code;S.ans=null;S.cur=0;S.draft={};S.seen=0;S.chatOpen=false;S.hideEnd=false;
   if(!await load()){localStorage.removeItem('room');S.code=null;return}
   localStorage.setItem('room',code);
   const f={schema:'public',filter:'room=eq.'+code};
@@ -121,7 +134,8 @@ async function enter(code){
     .subscribe(s=>{if(s=='SUBSCRIBED')track()});
 }
 function track(){const me=S.players.find(p=>p.uid==S.uid);S.ch&&S.ch.track({cur:S.cur,c:me?me.color:0})}
-async function leave(){if(S.ch)await sb.removeChannel(S.ch);localStorage.removeItem('room');S.code=null;S.room=null;render()}
+async function leave(){if(S.ch)await sb.removeChannel(S.ch);localStorage.removeItem('room');S.code=null;S.room=null;S.hideEnd=false;render()}
+function leaveGame(){if(playing()&&!confirm('¿Salir de la partida? Podés volver a entrar con el código de sala ('+S.code+').'))return;leave()}
 
 /* ---------- acciones ---------- */
 const name=()=>{const n=($('#nm')||{}).value||localStorage.getItem('nm')||'';if(n.trim())localStorage.setItem('nm',n.trim());return n.trim()}
@@ -190,18 +204,18 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
 
 function game(){
   const n=nBoards(),sts=[...Array(n).keys()].map(st),solved=sts.filter(x=>x=='ok').length;
-  const ans=i=>S.ans?S.ans[i]:null;
+  const ans=i=>S.ans?S.ans[i]:null,fin=S.room.status!='playing';
   const sent=S.room.tokens.map(t=>{
     if(t.t!==undefined)return `<span class="tok">${t.t}</span>`;
     const i=t.b,known=Array(5).fill('');
     gs(i).forEach(g=>{for(let j=0;j<5;j++)if(g.pattern[j]=='g')known[j]=g.word[j]});
-    const cells=[0,1,2,3,4].map(j=>sts[i]=='ok'?`<i>${known[j]}</i>`:`<i class="${known[j]?'k':''}">${known[j]}</i>`).join('');
+    const cells=[0,1,2,3,4].map(j=>sts[i]=='ok'?`<i>${known[j]}</i>`:fin&&S.ans?`<i class="r">${S.ans[i][j]}</i>`:`<i class="${known[j]?'k':''}">${known[j]}</i>`).join('');
     return `<button class="slot ${sts[i]=='ok'?'ok':''} ${sts[i]=='bad'?'bad':''} ${i==S.cur?'sel':''}" onclick="go(${i})">${cells}</button>`}).join('');
   const my=gs(S.cur),stc=sts[S.cur];let rows='';
   for(let r=0;r<6;r++){
     const g=my[r];let cells,cls='brow';
     if(g){const who=S.players.find(p=>p.uid==g.uid);
-      cells=[...g.word].map((l,i)=>`<div class="cell ${g.pattern[i]}">${l}</div>`).join('')+`<span class="who" style="--c:${COLORS[who?who.color:0]}" title="${who?esc(who.name):''}"></span>`}
+      cells=[...g.word].map((l,i)=>`<div class="cell ${g.pattern[i]}">${l}</div>`).join('')+`<span class="who" style="--c:${COLORS[who?who.color:0]}" title="${who?esc(who.name):''}">${who?esc(who.name.slice(0,1).toUpperCase()):''}</span>`}
     else{const d=(r==my.length&&stc=='play')?(S.draft[S.cur]||''):'';if(r==my.length&&stc=='play')cls+=' cur';
       cells=[0,1,2,3,4].map(i=>`<div class="cell ${d[i]?'t':''}">${d[i]||''}</div>`).join('')+'<span class="who" style="visibility:hidden"></span>'}
     rows+=`<div class="${cls}">${cells}</div>`}
@@ -214,17 +228,52 @@ function game(){
     const dots=viewers.filter(v=>v.cur==i).map(v=>`<u style="--c:${COLORS[v.c]}"></u>`).join('');
     return `<button class="th ${i==S.cur?'sel':''} ${s}" onclick="go(${i})"><div class="mini">${cells}</div><span>${i+1} · ${s=='ok'?'resuelta':s=='bad'?'sin intentos':gs(i).length+'/6'}</span><div class="dots">${dots}</div></button>`}).join('');
   const chips=S.players.map(p=>`<span class="chip ${p.uid==S.uid?'me':''}" style="--c:${COLORS[p.color]}">${esc(p.name)}</span>`).join('');
-  const fin=S.room.status!='playing';
-  const over=fin?`<div class="over"><div class="panel"><h1>${S.room.status=='won'?'¡Ganaron!':'Perdieron'}</h1>
-    <p style="font-size:20px">${S.room.tokens.map(t=>t.t!==undefined?t.t:(ans(t.b)||'?').toLowerCase()).join(' ')}.</p>
-    <p class="mut">${solved} de ${n} palabras resueltas</p><button class="btn go" onclick="leave()">Volver al inicio</button></div></div>`:'';
-  return `<div class="top"><div class="row">${chips}</div><div class="mut">Sala ${S.code} · ${solved}/${n}</div>
+  const over=fin&&!S.hideEnd?`<div class="over"><div class="panel stats">${statsHTML(solved,n)}
+    <div class="row" style="justify-content:center;margin-top:14px"><button class="btn go" onclick="S.hideEnd=true;render()">Revisar tableros</button><button class="btn" onclick="leave()">Salir</button></div>
+    <p class="mut">Sacá una captura para compartir 📸</p></div></div>`:'';
+  const bar=fin&&S.hideEnd?`<div class="panel row">Partida terminada · modo revisión <button class="btn" onclick="S.hideEnd=false;render()">Ver resultados</button></div>`:'';
+  return `<div class="top"><div class="row">${chips}</div><div class="mut">Sala ${S.code} · ${solved}/${n}</div><button class="btn" style="padding:6px 12px" onclick="leaveGame()">Salir</button>
     <div class="clock ${left()<=20?'low':''}" id="clock">${fmt(fin?0:left())}</div></div>
-    <div class="panel sent">${sent}.</div>
+    ${bar}<div class="panel sent">${sent}.</div>
     <div class="game"><div class="center">
       <div class="nav"><button class="btn" onclick="go(${S.cur-1})">◀</button><b>Palabra ${S.cur+1} de ${n}</b><button class="btn" onclick="go(${S.cur+1})">▶</button></div>
-      <div class="board">${rows}</div><div class="kb">${kb}</div></div>
+      <div class="board">${rows}</div>${fin&&stc!='ok'&&S.ans?`<div class="mut">La palabra era <b>${S.ans[S.cur]}</b></div>`:''}<div class="kb">${kb}</div></div>
       <div class="thumbs">${th}</div></div>${over}`;
+}
+/* ---------- estadisticas ---------- */
+function statsHTML(solved,n){
+  const P={};S.players.forEach(p=>P[p.uid]={p,solved:0,tries:0,greens:0,msgs:0});
+  const B=[];
+  for(let i=0;i<n;i++){
+    const a=gs(i),known=[0,0,0,0,0],who=new Set();let solver=null;
+    a.forEach(g=>{who.add(g.uid);const x=P[g.uid];if(!x)return;x.tries++;
+      for(let j=0;j<5;j++)if(g.pattern[j]=='g'&&!known[j]){known[j]=1;x.greens++}
+      if(g.pattern=='ggggg'){x.solved++;solver=g.uid}});
+    B.push({t:a.length,ok:!!solver,solver,who:who.size,w:S.ans?S.ans[i]:'?'});
+  }
+  (S.msgs||[]).forEach(m=>{if(P[m.uid])P[m.uid].msgs++});
+  const L=Object.values(P).sort((a,b)=>b.solved-a.solved||b.greens-a.greens);
+  const top=k=>{const m=Math.max(...L.map(x=>x[k]));return m>0?L.filter(x=>x[k]==m):[]};
+  const nm=x=>x.map(y=>esc(y.p.name)).join(' y ');
+  const aw=[];
+  const mvp=top('solved');if(mvp.length)aw.push(['🏆','MVP',nm(mvp),mvp[0].solved+(mvp[0].solved==1?' palabra resuelta':' palabras resueltas')]);
+  const fast=B.filter(b=>b.ok).sort((a,b)=>a.t-b.t)[0];
+  if(fast){const x=P[fast.solver];aw.push(['🎯','Francotirador',x?esc(x.p.name):'?',fast.w+' en '+fast.t+(fast.t==1?' intento':' intentos')])}
+  const det=top('greens');if(det.length)aw.push(['🔍','Detective',nm(det),det[0].greens+' letras verdes nuevas']);
+  if(L.length>1){const g=top('tries');if(g.length)aw.push(['🧨','Gastaintentos',nm(g),g[0].tries+' intentos usados'])}
+  const hard=B.filter(b=>b.t>0).sort((a,b)=>b.t-a.t)[0];
+  if(hard)aw.push(['😬','Palabra más dura',hard.w,hard.t+' intentos'+(hard.ok?'':' y nadie la sacó')]);
+  const ch=top('msgs');if(ch.length)aw.push(['💬','Charlatán',nm(ch),ch[0].msgs+' mensajes']);
+  const pl=B.filter(b=>b.t>0);
+  if(L.length>1&&pl.length)aw.push(['🤝','Trabajo en equipo',Math.round(100*pl.filter(b=>b.who>1).length/pl.length)+'%','de las palabras las tocó más de uno']);
+  const gt=S.guesses.map(g=>+new Date(g.created_at)),dur=gt.length?Math.round((Math.max(...gt)-Math.min(...gt))/1000):0;
+  const sent=S.room.tokens.map(t=>t.t!==undefined?t.t:(S.ans?S.ans[t.b]:'?').toLowerCase()).join(' ');
+  return `<h1>${S.room.status=='won'?'🎉 ¡Ganaron!':'😵 Perdieron'}</h1>
+    <p style="font-size:18px;margin:6px 0">“${sent}”</p>
+    <div class="sum"><div><b>${solved}/${n}</b><span>palabras</span></div><div><b>${S.guesses.length}</b><span>intentos</span></div><div><b>${fmt(dur)}</b><span>de juego</span></div></div>
+    <div class="awards">${aw.map(a=>`<div class="aw"><i>${a[0]}</i><div><small>${a[1]}</small><b>${a[2]}</b><span>${a[3]}</span></div></div>`).join('')}</div>
+    <table class="st"><tr><th></th><th>Resueltas</th><th>Intentos</th><th>Verdes</th><th>Msgs</th></tr>
+    ${L.map(x=>`<tr><td><span class="chip" style="--c:${COLORS[x.p.color]}">${esc(x.p.name)}</span></td><td>${x.solved}</td><td>${x.tries}</td><td>${x.greens}</td><td>${x.msgs}</td></tr>`).join('')}</table>`;
 }
 /* ---------- chat ---------- */
 function renderChat(){
