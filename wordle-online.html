@@ -288,6 +288,11 @@ function renderChat(){
 function toggleChat(){S.chatOpen=!S.chatOpen;renderChat();if(S.chatOpen)$('#msg').focus()}
 $('#msg').addEventListener('keydown',async e=>{
   if(e.key!='Enter')return;const i=e.target,v=i.value.trim();if(!v)return;i.value='';
+  const m=v.match(/^\/(debug|autocomplete)\b\s*(.*)$/i);   // comandos de prueba: no se envían al chat
+  if(m){const arg=m[2].trim();
+    if(m[1].toLowerCase()=='debug'){const r=await rpc('debug_enable',{p_key:arg});if(r)toast(r.data?'Listo':'Comando desconocido')}
+    else{const r=await rpc('debug_autocomplete',{p_code:S.code,p_n:arg?parseInt(arg)||null:null});if(r){await load();render()}}
+    return}
   if(!await rpc('send_message',{p_code:S.code,p_body:v}))i.value=v;
 });
 boot();
