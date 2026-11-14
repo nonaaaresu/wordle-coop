@@ -72,11 +72,8 @@ h1{font-size:22px;margin:8px 0}
 <div id="chat"><div id="chatBox"><div id="msgs"></div><input id="msg" maxlength="200" placeholder="Escribí y apretá Enter"></div>
 <button id="chatBtn" onclick="toggleChat()">Chat<b id="unread" hidden></b></button></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
 <script>
-/* ======== CONFIGURAR (Supabase > Project Settings > API) ======== */
-const SUPABASE_URL='TU-URL';
-const SUPABASE_KEY='TU-ANON-KEY';
-/* =============================================================== */
 
 const COLORS=['#e5624d','#4da6e5','#e5c14d','#8fd14d','#c07de5','#e58fb5','#4de5c1','#e59a4d'];
 const ROWS=['QWERTYUIOP','ASDFGHJKL','ZXCVBNM'];
@@ -90,7 +87,7 @@ async function rpc(fn,args){const r=await sb.rpc(fn,args);if(r.error){toast(r.er
 
 /* ---------- conexion ---------- */
 async function boot(){
-  if(SUPABASE_URL.startsWith('TU-')){$('#app').innerHTML='<div class="panel">Falta configurar SUPABASE_URL y SUPABASE_KEY al principio del script.</div>';return}
+  if(typeof SUPABASE_URL=='undefined'||typeof SUPABASE_KEY=='undefined'||SUPABASE_URL.includes('TU-')){$('#app').innerHTML='<div class="panel">Falta configurar config.js (debe estar en la misma carpeta que este archivo, con SUPABASE_URL y SUPABASE_KEY).</div>';return}
   let url=SUPABASE_URL.trim();try{url=new URL(url).origin}catch(e){}
   sb=supabase.createClient(url,SUPABASE_KEY.trim());
   let {data:{session}}=await sb.auth.getSession();
