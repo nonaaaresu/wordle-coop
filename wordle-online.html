@@ -128,7 +128,7 @@ const name=()=>{const n=($('#nm')||{}).value||localStorage.getItem('nm')||'';if(
 async function createRoom(){const n=name();if(!n)return toast('Poné tu nombre');const r=await rpc('create_room',{p_name:n});if(r){await enter(r.data);render()}}
 async function joinRoom(){const n=name();if(!n)return toast('Poné tu nombre');const c=$('#cd').value.trim().toUpperCase();
   if(!c)return toast('Poné el código');if(await rpc('join_room',{p_code:c,p_name:n})){await enter(c);render()}}
-async function startGame(){if(await rpc('start_game',{p_code:S.code,p_diff:S.diff})){await load();render()}}
+async function startGame(){if(await rpc('start_game',{p_code:S.code,p_diff:S.diff,p_secs:(S.mins||10)*60})){await load();render()}}
 
 const nBoards=()=>S.room.tokens.filter(t=>t.b!==undefined).length;
 const gs=i=>S.guesses.filter(g=>g.idx==i);
@@ -181,6 +181,8 @@ function lobby(){
    ${S.players.map(p=>`<span class="chip ${p.uid==S.uid?'me':''}" style="--c:${COLORS[p.color]}">${esc(p.name)}${p.uid==S.room.host?' ★':''}</span>`).join('')}</div></div>
    <div class="panel">${host?`<b>Dificultad</b><div class="row" style="margin:10px 0">
    ${Object.entries(DIFF).map(([k,v])=>`<button class="btn ${S.diff==k?'on':''}" onclick="S.diff='${k}';render()">${v}</button>`).join('')}</div>
+   <b>Tiempo límite</b><div class="row" style="margin:10px 0">
+   ${[3,5,8,10,15,20].map(m=>`<button class="btn ${(S.mins||10)==m?'on':''}" onclick="S.mins=${m};render()">${m} min</button>`).join('')}</div>
    <button class="btn go" onclick="startGame()">Empezar partida</button>`:'<span class="mut">Esperando a que el anfitrión empiece…</span>'}
    <p><button class="btn" onclick="leave()">Salir</button></p></div>`;
 }
