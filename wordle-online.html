@@ -71,6 +71,15 @@ h1{font-size:22px;margin:8px 0}
 .st{width:100%;border-collapse:collapse;margin-top:14px;font-size:14px}
 .st th{color:var(--mut);font-weight:400;font-size:12px;padding:4px}.st td{padding:6px 4px;border-top:1px solid var(--line)}
 .st td:first-child{text-align:left}.st td+td,.st th+th{text-align:center}
+input[type=checkbox]{width:auto;padding:0;margin-right:6px}
+.ghost{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--mut)}
+.ghost code{font-family:monospace;color:var(--tx);letter-spacing:3px;font-size:16px}
+#rain{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:7}
+.drop{position:absolute;top:-50px;text-align:center;animation:fall 2.8s ease-in forwards}
+.drop small{display:block;font-size:11px;color:#fff}
+@keyframes fall{0%{transform:translateY(0) rotate(0);opacity:1}100%{transform:translateY(110vh) rotate(25deg);opacity:0}}
+#reacts{display:flex;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:2px 6px}
+#reacts button{border:0;background:none;font-size:20px;padding:2px 4px}
 #chat{position:fixed;right:12px;bottom:12px;z-index:6;display:none;flex-direction:column;align-items:flex-end;gap:8px}
 #chatBtn{background:var(--hl);color:#111;border:0;border-radius:20px;padding:10px 18px;font-weight:700}
 #chatBtn b{background:#e5624d;color:#fff;border-radius:10px;padding:1px 7px;margin-left:6px;font-size:12px}
@@ -82,7 +91,9 @@ h1{font-size:22px;margin:8px 0}
 <body>
 <div class="wrap" id="app"></div>
 <div class="toast" id="toast"></div>
+<div id="rain"></div>
 <div id="chat"><div id="chatBox"><div id="msgs"></div><input id="msg" maxlength="200" placeholder="Escribí y apretá Enter"></div>
+<div id="reacts"></div>
 <button id="chatBtn" onclick="toggleChat()">Chat<b id="unread" hidden></b></button></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
@@ -93,7 +104,7 @@ const ROWS=['QWERTYUIOP','ASDFGHJKL','ZXCVBNM'];
 const DIFF={facil:'Fácil (2 por jugador)',media:'Media (3 por jugador)',dificil:'Difícil (5 por jugador)'};
 const $=s=>document.querySelector(s);
 const fmt=s=>Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
-let sb,S={cur:0,draft:{},diff:'facil',pres:{},players:[],guesses:[]};
+let sb,S={cur:0,draft:{},diff:'facil',pres:{},live:{},players:[],guesses:[]};
 
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',1800)}
 async function rpc(fn,args){const r=await sb.rpc(fn,args);if(r.error){toast(r.error.message);return null}return r}
@@ -121,26 +132,27 @@ async function load(){
 }
 let rt;const reload=()=>{clearTimeout(rt);rt=setTimeout(async()=>{await load();render()},60)};
 async function enter(code){
-  S.code=code;S.ans=null;S.cur=0;S.draft={};S.seen=0;S.chatOpen=false;S.hideEnd=false;
+  S.code=code;S.ans=null;S.cur=0;S.draft={};S.seen=0;S.chatOpen=false;S.hideEnd=false;S.live={};
   if(!await load()){localStorage.removeItem('room');S.code=null;return}
   localStorage.setItem('room',code);
   const f={schema:'public',filter:'room=eq.'+code};
-  S.ch=sb.channel('room-'+code,{config:{presence:{key:S.uid}}})
+  S.ch=sb.channel('room-'+code)
     .on('postgres_changes',{event:'*',schema:'public',table:'rooms',filter:'code=eq.'+code},reload)
     .on('postgres_changes',{event:'*',...f,table:'players'},reload)
     .on('postgres_changes',{event:'INSERT',...f,table:'guesses'},reload)
     .on('postgres_changes',{event:'INSERT',...f,table:'messages'},reload)
-    .on('presence',{event:'sync'},()=>{S.pres=S.ch.presenceState();render()})
+    .on('broadcast',{event:'live'},({payload:p})=>{S.live[p.u]={cur:+p.cur||0,d:String(p.d||'').replace(/[^A-Z]/g,'').slice(0,5),t:Date.now()};clearTimeout(S.lt);S.lt=setTimeout(render,60)})
+    .on('broadcast',{event:'react'},({payload:p})=>{if(REACTS.includes(p.e))rain(p.e,String(p.n||'').slice(0,20))})
     .subscribe(s=>{if(s=='SUBSCRIBED')track()});
 }
-function track(){const me=S.players.find(p=>p.uid==S.uid);S.ch&&S.ch.track({cur:S.cur,c:me?me.color:0})}
+function track(){sendLive()}
 async function leave(){if(S.ch)await sb.removeChannel(S.ch);localStorage.removeItem('room');S.code=null;S.room=null;S.hideEnd=false;render()}
 function leaveGame(){if(playing()&&!confirm('¿Salir de la partida? Podés volver a entrar con el código de sala ('+S.code+').'))return;leave()}
 
 /* ---------- acciones ---------- */
 const name=()=>{const n=($('#nm')||{}).value||localStorage.getItem('nm')||'';if(n.trim())localStorage.setItem('nm',n.trim());return n.trim()}
-async function createRoom(){const n=name();if(!n)return toast('Poné tu nombre');const r=await rpc('create_room',{p_name:n});if(r){await enter(r.data);render()}}
-async function joinRoom(){const n=name();if(!n)return toast('Poné tu nombre');const c=$('#cd').value.trim().toUpperCase();
+async function createRoom(){const n=name();if(!n)return toast('Poné tu nombre');const r=await rpc('create_room',{p_name:n,p_public:!!($('#pub')||{}).checked});if(r){await enter(r.data);render()}}
+async function joinRoom(code){const n=name();if(!n)return toast('Poné tu nombre');const c=(code||$('#cd').value).trim().toUpperCase();
   if(!c)return toast('Poné el código');if(await rpc('join_room',{p_code:c,p_name:n})){await enter(c);render()}}
 async function startGame(){if(await rpc('start_game',{p_code:S.code,p_diff:S.diff,p_secs:(S.mins||10)*60})){await load();render()}}
 
@@ -151,17 +163,25 @@ const left=()=>Math.max(0,Math.round((new Date(S.room.ends_at)-Date.now())/1000)
 const playing=()=>S.room&&S.room.status=='playing';
 
 async function tick(){
+  S.tk=(S.tk||0)+1;
+  if(!S.room){if(S.tk%5==0)pollRooms();return}
+  if(S.tk%3==0&&playing())sendLive();
+  const now=Date.now();let chg=false;
+  for(const u in S.live)if(now-S.live[u].t>9000){delete S.live[u];chg=true}
+  if(chg)render();
+  if(S.room.finished_at){const e=$('#closein');if(e)e.textContent=closeLeft();
+    if(+new Date(S.room.finished_at)+300000<=now){await leave();toast('La sala se cerró');return}}
   if(!playing())return;
   const c=$('#clock'),l=left();if(c){c.textContent=fmt(l);c.classList.toggle('low',l<=20)}
   if(l<=0&&!S.chk){S.chk=1;await rpc('check_time',{p_code:S.code});await load();S.chk=0;render()}
 }
-function type(ch){if(!playing()||st(S.cur)!='play')return;const d=S.draft[S.cur]||'';if(d.length<5){S.draft[S.cur]=d+ch;render()}}
-function back(){if(!playing())return;S.draft[S.cur]=(S.draft[S.cur]||'').slice(0,-1);render()}
+function type(ch){if(!playing()||st(S.cur)!='play')return;const d=S.draft[S.cur]||'';if(d.length<5){S.draft[S.cur]=d+ch;render();sendLive()}}
+function back(){if(!playing())return;S.draft[S.cur]=(S.draft[S.cur]||'').slice(0,-1);render();sendLive()}
 async function enter_(){
   if(!playing()||st(S.cur)!='play')return;
   const d=S.draft[S.cur]||'';
   if(d.length<5){toast('Faltan letras');const r=$('.brow.cur');r&&r.classList.add('shake');return}
-  S.draft[S.cur]='';
+  S.draft[S.cur]='';sendLive();
   const r=await rpc('submit_guess',{p_code:S.code,p_idx:S.cur,p_word:d});
   if(!r)S.draft[S.cur]=d;
   await load();render();
@@ -179,13 +199,15 @@ document.addEventListener('keydown',e=>{
 function render(){
   const a=$('#app');if(!sb)return;
   a.innerHTML=!S.room?home():S.room.status=='lobby'?lobby():game();
-  renderChat();
+  renderChat();if(!S.room){drawRooms();pollRooms()}
 }
 function home(){return `<h1>Wordle en equipo</h1><div class="panel">
   <p><b>Tu nombre</b></p><input id="nm" maxlength="20" value="${localStorage.getItem('nm')||''}" placeholder="Nombre">
+  <p><label><input type="checkbox" id="pub">Sala pública (aparece en la lista)</label></p>
   <p><button class="btn go" onclick="createRoom()">Crear sala</button></p>
   <p><b>O unite con un código</b></p>
-  <div class="row"><input id="cd" maxlength="5" placeholder="ABCDE" style="text-transform:uppercase;width:120px"><button class="btn" onclick="joinRoom()">Unirme</button></div></div>`}
+  <div class="row"><input id="cd" maxlength="5" placeholder="ABCDE" style="text-transform:uppercase;width:120px"><button class="btn" onclick="joinRoom()">Unirme</button></div></div>
+  <div class="panel"><div class="row" style="justify-content:space-between"><b>Salas públicas</b><button class="btn" style="padding:4px 10px" onclick="pollRooms()">Actualizar</button></div><div id="rooms" style="margin-top:10px"></div></div>`}
 
 function lobby(){
   const host=S.room.host==S.uid;
@@ -222,7 +244,11 @@ function game(){
   const ks={},o={x:0,y:1,g:2};
   my.forEach(g=>[...g.word].forEach((l,i)=>{const s=g.pattern[i];if(ks[l]===undefined||o[s]>o[ks[l]])ks[l]=s}));
   const kb=ROWS.map((r,ri)=>`<div class="kr">${ri==2?'<button class="k w" onclick="enter_()">ENTER</button>':''}${[...r].map(l=>`<button class="k ${ks[l]||''}" onclick="type('${l}')">${l}</button>`).join('')}${ri==2?'<button class="k w" onclick="back()">⌫</button>':''}</div>`).join('');
-  const viewers=Object.values(S.pres).map(a=>a[0]).filter(Boolean);
+  const now=Date.now(),colorOf=u=>{const p=S.players.find(x=>x.uid==u);return p?p.color:0};
+  const live=Object.entries(S.live||{}).filter(([u,v])=>now-v.t<9000);
+  const viewers=live.map(([u,v])=>({cur:v.cur,c:colorOf(u)}));
+  const ghosts=live.filter(([u,v])=>u!=S.uid&&v.cur==S.cur&&v.d).map(([u,v])=>{const p=S.players.find(x=>x.uid==u);
+    return `<div class="ghost" style="--c:${COLORS[colorOf(u)]}"><span class="who">${p?esc(p.name.slice(0,1).toUpperCase()):'?'}</span><b>${p?esc(p.name):'?'}</b> escribe <code>${esc(v.d)}</code></div>`}).join('');
   const th=sts.map((s,i)=>{
     const cells=Array.from({length:30},(_,j)=>{const g=gs(i)[Math.floor(j/5)];return `<b class="${g?g.pattern[j%5]:''}"></b>`}).join('');
     const dots=viewers.filter(v=>v.cur==i).map(v=>`<u style="--c:${COLORS[v.c]}"></u>`).join('');
@@ -230,14 +256,14 @@ function game(){
   const chips=S.players.map(p=>`<span class="chip ${p.uid==S.uid?'me':''}" style="--c:${COLORS[p.color]}">${esc(p.name)}</span>`).join('');
   const over=fin&&!S.hideEnd?`<div class="over"><div class="panel stats">${statsHTML(solved,n)}
     <div class="row" style="justify-content:center;margin-top:14px"><button class="btn go" onclick="S.hideEnd=true;render()">Revisar tableros</button><button class="btn" onclick="leave()">Salir</button></div>
-    <p class="mut">Sacá una captura para compartir 📸</p></div></div>`:'';
-  const bar=fin&&S.hideEnd?`<div class="panel row">Partida terminada · modo revisión <button class="btn" onclick="S.hideEnd=false;render()">Ver resultados</button></div>`:'';
+    <p class="mut">Sacá una captura para compartir 📸 · La sala se cierra en <span id="closein">${closeLeft()}</span></p></div></div>`:'';
+  const bar=fin&&S.hideEnd?`<div class="panel row">Partida terminada · modo revisión · cierra en <span id="closein">${closeLeft()}</span> <button class="btn" onclick="S.hideEnd=false;render()">Ver resultados</button></div>`:'';
   return `<div class="top"><div class="row">${chips}</div><div class="mut">Sala ${S.code} · ${solved}/${n}</div><button class="btn" style="padding:6px 12px" onclick="leaveGame()">Salir</button>
     <div class="clock ${left()<=20?'low':''}" id="clock">${fmt(fin?0:left())}</div></div>
     ${bar}<div class="panel sent">${sent}.</div>
     <div class="game"><div class="center">
       <div class="nav"><button class="btn" onclick="go(${S.cur-1})">◀</button><b>Palabra ${S.cur+1} de ${n}</b><button class="btn" onclick="go(${S.cur+1})">▶</button></div>
-      <div class="board">${rows}</div>${fin&&stc!='ok'&&S.ans?`<div class="mut">La palabra era <b>${S.ans[S.cur]}</b></div>`:''}<div class="kb">${kb}</div></div>
+      <div class="board">${rows}</div>${ghosts}${fin&&stc!='ok'&&S.ans?`<div class="mut">La palabra era <b>${S.ans[S.cur]}</b></div>`:''}<div class="kb">${kb}</div></div>
       <div class="thumbs">${th}</div></div>${over}`;
 }
 /* ---------- estadisticas ---------- */
@@ -275,6 +301,31 @@ function statsHTML(solved,n){
     <table class="st"><tr><th></th><th>Resueltas</th><th>Intentos</th><th>Verdes</th><th>Msgs</th></tr>
     ${L.map(x=>`<tr><td><span class="chip" style="--c:${COLORS[x.p.color]}">${esc(x.p.name)}</span></td><td>${x.solved}</td><td>${x.tries}</td><td>${x.greens}</td><td>${x.msgs}</td></tr>`).join('')}</table>`;
 }
+/* ---------- en vivo, reacciones, lista de salas ---------- */
+const REACTS=['🔥','😂','😱','👏','❤️','💀','🎉'];
+$('#reacts').innerHTML=REACTS.map(e=>`<button onclick="react('${e}')">${e}</button>`).join('');
+const closeLeft=()=>S.room&&S.room.finished_at?fmt(Math.max(0,300-Math.round((Date.now()-new Date(S.room.finished_at))/1000))):'';
+function sendLive(){
+  if(!S.room)return;const d=S.draft[S.cur]||'';
+  S.live[S.uid]={cur:S.cur,d,t:Date.now()};
+  S.ch&&S.ch.send({type:'broadcast',event:'live',payload:{u:S.uid,cur:S.cur,d}});
+}
+function rain(e,n){
+  const L=$('#rain');
+  for(let i=0;i<8;i++){const d=document.createElement('div');d.className='drop';
+    d.style.left=(5+Math.random()*90)+'%';d.style.animationDelay=(Math.random()*.6)+'s';d.style.fontSize=(26+Math.random()*16)+'px';
+    d.innerHTML=e+(i==0&&n?'<small>'+esc(n)+'</small>':'');L.appendChild(d);setTimeout(()=>d.remove(),3800)}
+}
+function react(e){
+  const t=Date.now();if(t-(S.lr||0)<700||!S.room)return;S.lr=t;
+  const p=S.players.find(x=>x.uid==S.uid),n=p?p.name:'';
+  rain(e,n);S.ch&&S.ch.send({type:'broadcast',event:'react',payload:{e,n}});
+}
+function drawRooms(){
+  const e=$('#rooms');if(!e)return;const l=S.roomList||[];
+  e.innerHTML=l.length?l.map(r=>`<div class="row" style="justify-content:space-between;padding:6px 0;border-top:1px solid var(--line)"><span><b>${r.code}</b> · ${esc(r.host_name||'?')} · ${r.n} jugador${r.n==1?'':'es'}</span><button class="btn" style="padding:6px 14px" onclick="joinRoom('${r.code}')">Unirme</button></div>`).join(''):'<span class="mut">No hay salas públicas ahora mismo.</span>';
+}
+async function pollRooms(){if(S.room||!sb)return;const r=await sb.rpc('list_rooms');if(!r.error){S.roomList=r.data;drawRooms()}}
 /* ---------- chat ---------- */
 function renderChat(){
   const c=$('#chat');c.style.display=S.room?'flex':'none';if(!S.room)return;
